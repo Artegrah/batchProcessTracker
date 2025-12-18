@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batch Process Tracker</title>
+
+<style>
+  * { box-sizing: border-box; }
+  :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
+  body { margin: 0; background: #0b1220; color: #e8eefc; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 18px; }
+
+  .card {
+    background: #121b31;
+    border: 1px solid #263255;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,.25);
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #121b31;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #263255;
+    margin: -16px -16px 12px;
+    padding: 14px 16px 10px;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+  }
+
+  h1 { margin: 0; font-size: 22px; }
+  .muted { color: #a9b6d6; font-size: 13px; margin-top: 6px; }
+
+  .statusRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #0f1730;
+    border: 1px solid #2a3a66;
+    font-weight: 800;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 999px; background: #a9b6d6; }
+  .dot.editing { background: #ffd54a; }
+  .dot.running { background: #2a6bff; }
+  .dot.complete { background: #36d399; }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid #2a3a66;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #0f1730;
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    color: #e8eefc;
+    padding: 8px 10px;
+    min-height: 34px;
+    cursor: pointer;
+    font-weight: 900;
+  }
+  .seg button.active { background: #2a6bff; }
+
+  label {
+    display: flex;
+    align-items: flex-end;
+    margin: 14px 0 6px;
+    font-weight: 650;
+    min-height: 2.6em; /* keeps inputs aligned */
+  }
+
+  input, select, button {
+    width: 100%;
+    font-size: 15px;
+    border-radius: 10px;
+    padding: 10px;
+    border: 1px solid #2a3a66;
+    background: #0f1730;
+    color: #e8eefc;
+    min-height: 44px;
+  }
+
+  button { background: #2a6bff; border-color: #2a6bff; font-weight: 900; cursor: pointer; }
+  button.secondary { background: #16224a; border-color: #2a3a66; }
+  button.danger { background: #ff3b3b; border-color: #ff3b3b; }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .amountRow {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+
+  .amountRow input {
+    min-width: 0;
+  }
+
+  /* Mobile fix */
+  @media (max-width: 480px) {
+    .amountRow {
+        grid-template-columns: 1fr;
+    }
+  }
+
+  .seg.tiny button{
+    justify-self: start;
+    padding: 8px 10px;
+    min-height: 44px; /* match inputs */
+  }
+
+  .panel {
+    margin-top: 14px;
+    background: #0f1730;
+    border: 1px solid #2a3a66;
+    border-radius: 12px;
+    padding: 12px;
+  }
+
+  .panelHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .actions button { flex: 1; min-width: 160px; }
+
+  .kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid #2a3a66;
+    border-radius: 10px;
+    background: #121b31;
+    margin-top: 8px;
+  }
+  .kv b { font-weight: 900; }
+
+  .steps { margin-top: 10px; display: grid; gap: 10px; }
+  .step {
+    background: #121b31;
+    border: 1px solid #2a3a66;
+    border-radius: 12px;
+    padding: 10px 12px;
+  }
+  .stepHead { display:flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .badge {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid #2a3a66;
+    background: #0f1730;
+    color: #a9b6d6;
+    white-space: nowrap;
+  }
+  .small { font-size: 13px; color: #a9b6d6; margin-top: 6px; line-height: 1.35; }
+
+  .list { margin: 8px 0 0; padding-left: 18px; color: #a9b6d6; }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <div class="card">
+
+    <div class="topbar">
+      <h1>Batch Process Tracker</h1>
+      <div class="muted">Each batch saves its own steps. Timer-only steps auto-start. Amount steps can use partial adds.</div>
+
+      <div class="statusRow">
+        <div class="pill">
+          <span class="dot" id="modeDot"></span>
+          <span id="modeText">Idle</span>
+        </div>
+
+        <div class="muted" id="batchText">No batch</div>
+      </div>
+    </div>
+
+    <label>Batch</label>
+    <select id="batchSelect">
+      <option value="7405">7405</option>
+      <option value="6950">6950</option>
+      <option value="5101">5101</option>
+    </select>
+
+    <div class="actions">
+      <button id="resetBatchBtn" class="danger">Reset Current Batch</button>
+      <button id="exportBtn" class="secondary">Export (copy text)</button>
+    </div>
+
+    <div class="panel">
+      <div class="panelHead">
+        <b>Add Step</b>
+      </div>
+
+      <label>Step name</label>
+      <input id="stepName" placeholder="Add / Mix / Transfer / Mill / Clean / etc.">
+
+      <div class="row">
+        <div>
+            <label>Amount (optional)</label>
+
+            <div class="amountRow">
+              <input id="stepAmount" type="number" min="0" step="1" placeholder="0 allowed">
+
+              <div class="seg tiny" role="group" aria-label="Step unit">
+              <button id="stepUnitLbsBtn" type="button">lbs</button>
+              <button id="stepUnitGalBtn" type="button">gal</button>
+              </div>
+            </div>
+        </div>
+        <div>
+          <label>Timer minutes (optional)</label>
+          <input id="stepMinutes" type="number" min="0" step="1" placeholder="0 allowed">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="addStepBtn">Add Step</button>
+        <button id="undoStepBtn" class="secondary">Undo Last</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <b>Steps</b>
+      <div id="stepsList" class="steps"></div>
+    </div>
+
+    <div class="panel">
+      <b>Process</b>
+      <div class="kv"><span>Current step</span><b id="currentStep">-</b></div>
+      <div class="kv"><span>Timer</span><b id="timer">-</b></div>
+
+      <div class="actions">
+        <button id="startProcessBtn" class="secondary">Start Process</button>
+        <button id="completeStepBtn">Complete Step</button>
+      </div>
+
+      <div id="partialPanel" class="panel" style="margin-top:12px; display:none;">
+        <b>Add Material</b>
+        <div class="muted" style="margin-top:6px;">Confirm material added toward the target amount for this step</div>
+
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <label>Add amount</label>
+            <input id="partialInput" type="number" min="0" step="1" placeholder="Enter amount">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button id="partialAddBtn" type="button">Add</button>
+          </div>
+        </div>
+
+        <div class="kv"><span>Target</span><b id="partialTarget">-</b></div>
+        <div class="kv"><span>Added total</span><b id="partialTotal">-</b></div>
+        <div class="kv"><span>Remaining</span><b id="partialRemain">-</b></div>
+
+        <ul class="list" id="partialList"></ul>
+      </div>
+
+      <div class="actions">
+        <button id="resetRunBtn" class="danger">Reset Run Data</button>
+      </div>
+
+      <div class="muted" style="margin-top:8px;">
+        Timer-only steps auto-start. Amount steps require Complete Step (warns if material adds are short).
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Export modal (works even when clipboard is blocked) -->
+<div id="exportModal" style="
+  position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.55); padding: 16px; z-index: 9999;">
+  <div style="
+    width: min(720px, 100%);
+    background: #121b31; border: 1px solid #263255; border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,.25); padding: 14px;">
+    <div style="display:flex; justify-content: space-between; align-items:center; gap:10px;">
+      <b>Export text</b>
+      <button id="exportCloseBtn" class="secondary" type="button" style="width:auto; min-height:40px;">Close</button>
+    </div>
+
+    <div class="muted" style="margin-top:8px;">
+      Tap inside → Select All → Copy. (This works even if automatic copying is blocked.)
+    </div>
+
+    <textarea id="exportBox" readonly style="
+      width: 100%; margin-top: 10px; min-height: 220px; resize: vertical;
+      font-size: 14px; border-radius: 12px; padding: 10px;
+      border: 1px solid #2a3a66; background: #0f1730; color: #e8eefc;"></textarea>
+
+    <div class="actions" style="margin-top:10px;">
+      <button id="exportSelectBtn" type="button" class="secondary">Select All</button>
+      <button id="exportTryCopyBtn" type="button">Try Copy</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  const STORAGE_KEY = "batchProcessTracker_v2_fix1";
+
+  function loadStore() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { batches: {}, lastStepUnit: "lbs" };
+      const data = JSON.parse(raw);
+      return {
+        batches: data.batches && typeof data.batches === "object" ? data.batches : {},
+        lastStepUnit: (data.lastStepUnit === "gal" ? "gal" : "lbs")
+      };
+    } catch {
+      return { batches: {}, lastStepUnit: "lbs" };
+    }
+  }
+
+  function saveStore() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  }
+
+  function batchKey(name) {
+    return String(name || "").trim() || "UNKNOWN";
+  }
+
+  let store = loadStore();
+
+  let mode = "idle"; // "idle" | "editing" | "running" | "complete"
+  let currentBatchName = null;
+  let index = 0;
+
+  let intervalId = null;
+  let endsAtMs = null;
+
+  let stepUnit = store.lastStepUnit || "lbs"; // "lbs" | "gal"
+
+  function createStep(name, amount, unit, minutes) {
+    return { name, amount, unit, minutes, phase: "pending", completedAt: null, adds: [] };
+  }
+
+  function getBatch(name) {
+    const key = batchKey(name);
+    if (!store.batches[key]) {
+      store.batches[key] = { name: key, steps: [] };
+      saveStore();
+    }
+    return store.batches[key];
+  }
+
+  function setMode(next) {
+    mode = next;
+    const dot = $("modeDot");
+    dot.className = "dot";
+    if (mode === "editing") dot.classList.add("editing");
+    if (mode === "running") dot.classList.add("running");
+    if (mode === "complete") dot.classList.add("complete");
+
+    $("modeText").textContent =
+      mode === "idle" ? "Idle" :
+      mode === "editing" ? "Editing" :
+      mode === "running" ? "Running" : "Complete";
+
+    $("batchSelect").disabled = (mode === "running");
+  }
+
+  function setBatchText() {
+    $("batchText").textContent = currentBatchName ? `Batch: ${currentBatchName}` : "No batch";
+  }
+
+  function nowStr() {
+    return new Date().toLocaleTimeString();
+  }
+
+  function toIntOrZero(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.trunc(n);
+  }
+
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function stopTimer() {
+    if (intervalId) clearInterval(intervalId);
+    intervalId = null;
+    endsAtMs = null;
+  }
+
+  function currentBatch() {
+    if (!currentBatchName) return null;
+    return getBatch(currentBatchName);
+  }
+
+  function currentStep() {
+    const b = currentBatch();
+    return b?.steps[index] ?? null;
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (m) => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[m]));
+  }
+
+  function actualAddedTotal(step) {
+    const adds = Array.isArray(step.adds) ? step.adds : [];
+    return adds.reduce((a, b) => a + b, 0);
+  }
+
+  function stepSummary(step) {
+    const parts = [];
+
+    // Amount display: actual/required when required amount exists
+    if (step.amount > 0) {
+      const unit = step.unit || "lbs";
+      const actual = actualAddedTotal(step); // will be 0 if nothing added
+      parts.push(`${actual}/${step.amount} ${unit}`);
+    }
+
+
+    if (step.minutes > 0) parts.push(`${step.minutes} min`);
+    return parts.length ? parts.join(" • ") : "—";
+  }
+
+  function renderSteps() {
+    const list = $("stepsList");
+    list.innerHTML = "";
+    const b = currentBatch();
+    if (!b) return;
+
+    b.steps.forEach((s, i) => {
+      const div = document.createElement("div");
+      div.className = "step";
+      const isCurrent = (mode === "running" && i === index);
+      const badge = s.completedAt ? "Done" : (isCurrent ? "Current" : "Queued");
+
+      div.innerHTML = `
+        <div class="stepHead">
+          <div><b>${i + 1}.</b> ${escapeHtml(s.name)}</div>
+          <span class="badge">${badge}</span>
+        </div>
+        <div class="small">
+          ${stepSummary(s)}<br>
+          Completed: <b>${s.completedAt ?? "-"}</b>
+        </div>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  function setProcessLabels() {
+    const s = currentStep();
+    $("currentStep").textContent = (mode === "running" && s) ? `${index + 1}) ${s.name}` : "-";
+  }
+
+  function updateStepUnitUI() {
+    $("stepUnitLbsBtn").classList.toggle("active", stepUnit === "lbs");
+    $("stepUnitGalBtn").classList.toggle("active", stepUnit === "gal");
+  }
+
+  function updateControls() {
+    const b = currentBatch();
+    const hasSteps = !!b && b.steps.length > 0;
+
+    $("startProcessBtn").disabled = !hasSteps || mode === "running";
+    
+    const canUndo = hasSteps && (
+    mode !== "running" ||
+    (mode === "running" && currentBatch() && currentBatch().steps.length > index + 1)
+    );
+    $("undoStepBtn").disabled = !canUndo;
+
+
+    const s = currentStep();
+
+    // ✅ FIX: Complete button ONLY enabled when current step is waitingManual
+    const canComplete =
+      (mode === "running" && s && s.phase === "waitingManual");
+
+    $("completeStepBtn").disabled = !canComplete;
+
+    const showPartial = (mode === "running" && s && s.amount > 0);
+    $("partialPanel").style.display = showPartial ? "block" : "none";
+    if (showPartial) renderPartialUI();
+  }
+
+  function enterCurrentStep() {
+    stopTimer();
+
+    const b = currentBatch();
+    const s = currentStep();
+    if (!b || !s) return finishProcess();
+
+    setProcessLabels();
+
+    if (s.amount > 0) {
+      s.phase = "waitingManual";
+      $("timer").textContent = "Waiting for Complete";
+      saveStore();
+      renderSteps();
+      updateControls();
+      return;
+    }
+
+    if (s.minutes > 0) {
+      startTimerForCurrentStep(); // auto-start timer-only
+      return;
+    }
+
+    s.phase = "waitingManual";
+    $("timer").textContent = "Waiting for Complete";
+    saveStore();
+    renderSteps();
+    updateControls();
+  }
+
+  function startTimerForCurrentStep() {
+    const s = currentStep();
+    if (!s) return;
+
+    if (intervalId) clearInterval(intervalId);
+    intervalId = null;
+
+    s.phase = "timing";
+    endsAtMs = Date.now() + (s.minutes * 60 * 1000);
+
+    tickTimer();
+    intervalId = setInterval(tickTimer, 250);
+
+    saveStore();
+    renderSteps();
+    updateControls();
+  }
+
+  function tickTimer() {
+    if (!endsAtMs) return;
+
+    const remainingMs = endsAtMs - Date.now();
+    if (remainingMs <= 0) {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = null;
+      endsAtMs = null;
+
+      $("timer").textContent = "0:00";
+      completeCurrentStepAuto();
+      return;
+    }
+
+    const seconds = Math.ceil(remainingMs / 1000);
+    $("timer").textContent = formatTime(seconds);
+  }
+
+  function completeCurrentStepAuto() {
+    const s = currentStep();
+    if (!s) return;
+
+    s.phase = "done";
+    s.completedAt = nowStr();
+    saveStore();
+    advanceStep();
+  }
+
+  function completeCurrentStepManual() {
+    const s = currentStep();
+    if (!s) return;
+
+    // ✅ FIX: if it’s a timer step currently running, ignore clicks (extra safety)
+    if (s.phase === "timing") return;
+
+    if (s.amount > 0) {
+      const total = (s.adds || []).reduce((a, b) => a + b, 0);
+      if (total < s.amount) {
+        const ok = confirm(`You’ve added ${total} ${s.unit} out of ${s.amount} ${s.unit}.\nComplete anyway?`);
+        if (!ok) return;
+      }
+    }
+
+    // If it has a timer AFTER manual complete, start it (this is for amount+timer steps)
+    if (s.minutes > 0) {
+      startTimerForCurrentStep();
+      return;
+    }
+
+    s.phase = "done";
+    s.completedAt = nowStr();
+    $("timer").textContent = "-";
+    saveStore();
+    advanceStep();
+  }
+
+  function advanceStep() {
+    index += 1;
+    const b = currentBatch();
+    if (!b || index >= b.steps.length) return finishProcess();
+    enterCurrentStep();
+  }
+
+  function startProcess() {
+    const b = currentBatch();
+    if (!b || b.steps.length === 0) return;
+
+    stopTimer();
+
+    // Find the first step that is NOT complete (new steps will be incomplete)
+    const firstIncomplete = b.steps.findIndex(s => !s.completedAt);
+
+    if (firstIncomplete === -1) {
+        // No new steps → restart the whole process from the beginning
+        index = 0;
+        b.steps.forEach(s => {
+        s.phase = "pending";
+        s.completedAt = null;
+        s.adds = Array.isArray(s.adds) ? s.adds : [];
+        s.adds.length = 0;
+        if (!s.unit) s.unit = "lbs";
+        });
+    } else {
+        // There ARE new steps → resume from the first incomplete step
+        index = firstIncomplete;
+
+        // Mark everything before index as done (keep their timestamps)
+        for (let i = 0; i < b.steps.length; i++) {
+        const s = b.steps[i];
+        if (!s.unit) s.unit = "lbs";
+
+        if (i < index) {
+            s.phase = "done";
+            // keep completedAt and adds as-is
+        } else {
+            // Steps at/after resume point: treat as not started
+            s.phase = "pending";
+            s.completedAt = null;
+            s.adds = Array.isArray(s.adds) ? s.adds : [];
+            s.adds.length = 0;
+        }
+        }
+    }
+
+    setMode("running");
+    $("timer").textContent = "-";
+    setProcessLabels();
+
+    saveStore();
+    renderSteps();
+    updateControls();
+
+    // Enter the step (timer-only steps will auto-start as before)
+    enterCurrentStep();
+  }
+
+
+  function finishProcess() {
+    stopTimer();
+    setMode("complete");
+    $("currentStep").textContent = "-";
+    $("timer").textContent = "-";
+    saveStore();
+    renderSteps();
+    updateControls();
+  }
+
+  function renderPartialUI() {
+    const s = currentStep();
+    if (!s || s.amount <= 0) return;
+
+    const total = (s.adds || []).reduce((a, b) => a + b, 0);
+    const remain = s.amount - total;
+
+    $("partialTarget").textContent = `${s.amount} ${s.unit}`;
+    $("partialTotal").textContent = `${total} ${s.unit}`;
+    $("partialRemain").textContent = `${Math.max(0, remain)} ${s.unit}`;
+
+    const ul = $("partialList");
+    ul.innerHTML = "";
+    (s.adds || []).forEach((v, i) => {
+      const li = document.createElement("li");
+      li.textContent = `${i + 1}) ${v} ${s.unit}`;
+      ul.appendChild(li);
+    });
+  }
+
+  function addPartialAmount() {
+    const s = currentStep();
+    if (!s || s.amount <= 0) return;
+
+    const val = toIntOrZero($("partialInput").value);
+    if (val <= 0) {
+      $("partialInput").value = "";
+      $("partialInput").focus();
+      return;
+    }
+
+    s.adds = Array.isArray(s.adds) ? s.adds : [];
+    s.adds.push(val);
+
+    $("partialInput").value = "";
+    saveStore();
+    renderPartialUI();
+  }
+
+  function loadSelectedBatch() {
+    if (mode === "running") return;
+
+    currentBatchName = $("batchSelect").value;
+    getBatch(currentBatchName);
+    setBatchText();
+
+    setMode("editing");
+    index = 0;
+    $("currentStep").textContent = "-";
+    $("timer").textContent = "-";
+
+    saveStore();
+    renderSteps();
+    updateControls();
+  }
+
+    function exportText() {
+    const b = currentBatch();
+    if (!b) return;
+
+    const lines = [];
+    lines.push(`Batch: ${b.name}`);
+    lines.push(`Steps:`);
+    b.steps.forEach((s, i) => {
+        lines.push(`${i + 1}. ${s.name} | ${stepSummary(s)} | Completed: ${s.completedAt ?? "-"}`);
+    });
+
+    const text = lines.join("\n");
+
+    // Always show a manual-copy box (works everywhere)
+    const modal = $("exportModal");
+    const box = $("exportBox");
+    modal.style.display = "flex";
+    box.value = text;
+
+    // Auto-select for convenience
+    setTimeout(() => {
+        box.focus();
+        box.select();
+    }, 50);
+
+    // Buttons
+    $("exportSelectBtn").onclick = () => { box.focus(); box.select(); };
+
+    $("exportTryCopyBtn").onclick = async () => {
+        // Try modern clipboard API first
+        try {
+        await navigator.clipboard.writeText(text);
+        alert("Copied to clipboard.");
+        return;
+        } catch {}
+
+        // Fallback for older / restricted browsers
+        try {
+        box.focus();
+        box.select();
+        const ok = document.execCommand("copy");
+        alert(ok ? "Copied to clipboard." : "Copy blocked — press and hold to copy.");
+        } catch {
+        alert("Copy blocked — press and hold to copy.");
+        }
+    };
+  }
+
+  // Handlers
+  $("batchSelect").addEventListener("change", loadSelectedBatch);
+
+  $("exportCloseBtn").onclick = () => { $("exportModal").style.display = "none"; };
+
+  // Tap outside modal to close
+  $("exportModal").addEventListener("click", (e) => {
+  if (e.target.id === "exportModal") $("exportModal").style.display = "none";
+  });
+
+  $("stepUnitLbsBtn").onclick = () => { stepUnit = "lbs"; store.lastStepUnit = stepUnit; saveStore(); updateStepUnitUI(); };
+  $("stepUnitGalBtn").onclick = () => { stepUnit = "gal"; store.lastStepUnit = stepUnit; saveStore(); updateStepUnitUI(); };
+
+  $("addStepBtn").onclick = () => {
+    const b = currentBatch();
+    if (!b) return alert("Select a batch first.");
+
+    const name = $("stepName").value.trim();
+    if (!name) return alert("Step name is required.");
+
+    const amount = toIntOrZero($("stepAmount").value);
+    const minutes = toIntOrZero($("stepMinutes").value);
+
+    b.steps.push(createStep(name, amount, stepUnit, minutes));
+    saveStore();
+
+    $("stepName").value = "";
+    $("stepAmount").value = "";
+    $("stepMinutes").value = "";
+
+    if (document.activeElement && typeof document.activeElement.blur === "function") {
+      document.activeElement.blur();
+    }
+
+    renderSteps();
+    updateControls();
+  };
+
+  $("undoStepBtn").onclick = () => {
+    const b = currentBatch();
+    if (!b || b.steps.length === 0) return;
+
+    if (mode === "running") {
+        // Only allow undo of steps that haven't started yet (queued steps)
+        const lastIndex = b.steps.length - 1;
+
+        // If the last step is the current step or earlier, don't allow
+        if (lastIndex <= index) {
+        alert("Can't undo a step that's already started.");
+        return;
+        }
+
+        b.steps.pop(); // remove last queued step
+    } else {
+        b.steps.pop();
+    }
+
+    saveStore();
+    renderSteps();
+    updateControls();
+  };
+
+
+
+  $("startProcessBtn").onclick = startProcess;
+  $("completeStepBtn").onclick = () => { completeCurrentStepManual(); renderSteps(); updateControls(); };
+
+  $("partialAddBtn").onclick = addPartialAmount;
+  $("partialInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addPartialAmount(); });
+
+  $("resetBatchBtn").onclick = () => {
+    const b = currentBatch();
+    if (!b) return;
+    if (!confirm(`Reset (clear) all steps and times for batch "${b.name}"?`)) return;
+
+    b.steps = [];
+    index = 0;
+    stopTimer();
+    setMode("editing");
+    $("currentStep").textContent = "-";
+    $("timer").textContent = "-";
+
+    saveStore();
+    renderSteps();
+    updateControls();
+  };
+
+  $("resetRunBtn").onclick = () => {
+    const b = currentBatch();
+    if (!b) return;
+    if (!confirm("Reset run data (completed times and material adds) but keep the steps?")) return;
+
+    stopTimer();
+    index = 0;
+    b.steps.forEach(s => {
+      s.phase = "pending";
+      s.completedAt = null;
+      s.adds = Array.isArray(s.adds) ? s.adds : [];
+      s.adds.length = 0;
+      if (!s.unit) s.unit = "lbs";
+    });
+
+    setMode("editing");
+    $("currentStep").textContent = "-";
+    $("timer").textContent = "-";
+
+    saveStore();
+    renderSteps();
+    updateControls();
+  };
+
+  $("exportBtn").onclick = exportText;
+
+  // Init
+  updateStepUnitUI();
+  currentBatchName = $("batchSelect").value;
+  getBatch(currentBatchName);
+  setBatchText();
+  setMode("editing");
+  renderSteps();
+  updateControls();
+</script>
+</body>
+</html>
